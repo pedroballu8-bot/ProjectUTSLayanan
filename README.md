@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Layanan Pembelajaran Virtual (LMS)
 
 Aplikasi web pembelajaran daring: akses materi kuliah, pengumpulan tugas, dan ujian online dengan timer serta penilaian otomatis.
@@ -36,3 +37,6 @@ python3 -m http.server 8000
 GitHub Pages hanya hosting file statis (bukan server). Untuk data bersama dan upload berkas sungguhan:
 - **Supabase / Firebase**: autentikasi, database, dan penyimpanan berkas, tetap bisa dari frontend statis.
 - **Node.js + Express + database**: deploy ke Render/Railway/Fly.io dari repositori GitHub yang sama.
+=======
+# ProjectUTSLayanan
+>>>>>>> 887333a5e2762d72c62eff2c3f1746ef82e4907c
