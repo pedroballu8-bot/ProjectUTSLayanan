@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ujian Daring - Pembelajaran Virtual</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="index.html">Pembelajaran Virtual</a>
+    <nav id="nav"></nav>
+  </header>
+
+  <main id="app" class="container"></main>
+
+  <footer class="footer">Layanan Pembelajaran Virtual &middot; Versi demo (data tersimpan di browser)</footer>
+
+  <script src="common.js"></script>
+  <script>
+    const app = $('#app');
+    let timerId = null;
+
+    /* ---------- Daftar ujian ---------- */
+    function listView() {
+      const dosen = user.role === 'dosen';
+      const filter = param('c') || '';
+      const list = db.ujian.filter((u) => !filter || u.courseId === filter);
+
+      app.innerHTML = `
+        <p class="eyebrow">Ujian Daring</p>
+        <h1>Ujian</h1>
+        <div class="card">
+          <label for="flt" style="margin-top:0">Filter mata kuliah</label>
+          <select id="flt"><option value="">Semua mata kuliah</option>${courseOptions(filter)}</select>
+        </div>
+        <div id="items"></div>
+        ${dosen ? `<div class="card"><h3>Buat Ujian Baru</h3>
+          <label>Mata kuliah</label><select id="uc">${courseOptions(filter)}</select>
+          <label>Judul ujian</label><input id="uj">
+          <label>Durasi (menit)</label><input id="ud" type="number" min="1" value="10">
+          <label>Soal (satu soal per baris)</label>
+          <textarea id="us" style="min-height:130px" placeholder="Pertanyaan | Pilihan A | Pilihan B | Pilihan C | Pilihan D | nomor jawaban benar&#10;Ibu kota Indonesia? | Bandung | Jakarta | Medan | Surabaya | 2"></textarea>
+          <p class="muted">Format: pertanyaan, 2–5 pilihan, lalu nomor jawaban benar (1 = pilihan pertama), dipisah tanda |</p>
+          <p><button id="addu">Simpan Ujian</button></p></div>` : ''}`;
+
+      $('#flt').onchange = (e) => { location.search = e.target.value ? `?c=${e.target.value}` : ''; };
+
+      $('#items').innerHTML = list.map((u) => {
+        const mine = db.hasil.find((h) => h.ujianId === u.id && h.user === user.nama);
+        const semua = db.hasil.filter((h) => h.ujianId === u.id);
+        return `<div class="card">
+          <span class="badge">${esc(courseName(u.courseId))}</span>
+          <h3 style="margin-top:8px">${esc(u.judul)}</h3>
+          <p class="muted">${u.soal.length} soal &middot; ${u.durasi} menit</p>
+          ${dosen
+            ? `<ul class="list">${semua.map((h) => `<li>${esc(h.user)}: <strong>${h.skor}</strong> <span class="muted">${fmt(h.waktu)}</span></li>`).join('') || '<li class="muted">Belum ada peserta.</li>'}</ul>`
+            : mine
+              ? `<p>Skor Anda: <strong>${mine.skor}</strong> <span class="badge ok">Selesai</span></p>`
+              : `<a class="btn" href="ujian.html?u=${u.id}">Mulai Ujian</a>`}
+        </div>`;
+      }).join('') || '<div class="card muted">Belum ada ujian.</div>';
+
+      if (dosen) $('#addu').onclick = () => {
+        const judul = $('#uj').value.trim();
+        const durasi = Number($('#ud').value);
+        const soal = [];
+        for (const [i, line] of $('#us').value.split('\n').map((l) => l.trim()).filter(Boolean).entries()) {
+          const p = line.split('|').map((x) => x.trim());
+          const ans = Number(p[p.length - 1]) - 1;
+          const opts = p.slice(1, -1);
+          if (p.length < 4 || opts.length > 5 || !(ans >= 0 && ans < opts.length)) return alert(`Format soal baris ${i + 1} tidak valid`);
+          soal.push({ q: p[0], opts, ans });
+        }
+        if (!judul || !(durasi > 0) || !soal.length) return alert('Lengkapi judul, durasi, dan minimal satu soal');
+        db.ujian.push({ id: uid(), courseId: $('#uc').value, judul, durasi, soal });
+        save(); listView();
+      };
+    }
+
+    /* ---------- Mengerjakan ujian ---------- */
+    function examView(id) {
+      const u = db.ujian.find((x) => x.id === id);
+      if (!u) { app.innerHTML = '<p>Ujian tidak ditemukan. <a href="ujian.html">Kembali</a></p>'; return; }
+      if (user.role === 'dosen') { app.innerHTML = '<p>Dosen tidak dapat mengikuti ujian. <a href="ujian.html">Kembali</a></p>'; return; }
+      if (db.hasil.find((h) => h.ujianId === id && h.user === user.nama)) { location.replace('ujian.html'); return; }
+
+      let sisa = u.durasi * 60;
+      app.innerHTML = `
+        <div class="timer">⏱ Sisa waktu: <span id="sisa"></span></div>
+        <h1>${esc(u.judul)}</h1>
+        <form id="form">${u.soal.map((s, i) => `
+          <div class="card q"><strong>${i + 1}. ${esc(s.q)}</strong>
+            ${s.opts.map((o, j) => `<label class="opt"><input type="radio" name="q${i}" value="${j}"> ${esc(o)}</label>`).join('')}
+          </div>`).join('')}
+          <button type="submit">Kirim Jawaban</button>
+        </form>`;
+
+      let selesai = false;
+      const finish = (auto) => {
+        if (selesai) return;
+        selesai = true; clearInterval(timerId);
+        let benar = 0;
+        u.soal.forEach((s, i) => {
+          const v = document.querySelector(`input[name="q${i}"]:checked`);
+          if (v && Number(v.value) === s.ans) benar++;
+        });
+        const skor = Math.round((benar / u.soal.length) * 100);
+        db.hasil.push({ id: uid(), ujianId: u.id, user: user.nama, skor, waktu: Date.now() });
+        save();
+        alert(`${auto ? 'Waktu habis. ' : ''}Skor Anda: ${skor} (${benar}/${u.soal.length} benar)`);
+        location.href = 'ujian.html';
+      };
+      const tick = () => {
+        const m = String(Math.floor(sisa / 60)).padStart(2, '0'), s = String(sisa % 60).padStart(2, '0');
+        $('#sisa').textContent = `${m}:${s}`;
+        if (sisa-- <= 0) finish(true);
+      };
+      tick(); timerId = setInterval(tick, 1000);
+      $('#form').onsubmit = (e) => { e.preventDefault(); if (confirm('Kirim jawaban sekarang?')) finish(false); };
+    }
+
+    if (requireLogin()) {
+      renderNav('ujian.html');
+      const uid_ = param('u');
+      uid_ ? examView(uid_) : listView();
+    }
+  </script>
+</body>
+</html>
